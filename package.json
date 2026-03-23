@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "bun src/index.ts serve",
     "login": "bun src/index.ts login",
     "serve": "bun src/index.ts serve"
   },
