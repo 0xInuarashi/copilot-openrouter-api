@@ -29,6 +29,18 @@ function normalizeDomain(url: string): string {
 }
 
 export function loadAuth(): AuthData | null {
+  // Env vars take priority (for serverless / container deployments)
+  const envToken = process.env.COPILOT_TOKEN
+  const envApiKey = process.env.COPILOT_API_KEY
+  if (envToken && envApiKey) {
+    return {
+      token: envToken,
+      domain: process.env.COPILOT_DOMAIN ?? "github.com",
+      apiKey: envApiKey,
+    }
+  }
+
+  // Fall back to auth.json file
   const p = authPath()
   if (!existsSync(p)) return null
   try {

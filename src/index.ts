@@ -39,7 +39,7 @@ async function main(): Promise<void> {
     case "serve": {
       const auth = loadAuth()
       if (!auth) {
-        console.error("Not authenticated. Run `bun run login` first.")
+        console.error("Not authenticated. Run `bun run login` first, or set COPILOT_TOKEN and COPILOT_API_KEY env vars.")
         process.exit(1)
       }
 
