@@ -186,6 +186,19 @@ export async function proxyToGitHubCopilot(
     console.log(`[${ts()}]       Normalized: ${normalized.length > 2000 ? normalized.slice(0, 2000) + "...(truncated)" : normalized}`)
   }
 
+  // Log token usage summary if present
+  try {
+    const parsed = JSON.parse(normalized)
+    const usage = parsed?.usage
+    if (usage) {
+      const prompt = usage.prompt_tokens ?? 0
+      const completion = usage.completion_tokens ?? 0
+      const total = usage.total_tokens ?? (prompt + completion)
+      const cached = usage.prompt_tokens_details?.cached_tokens ?? 0
+      console.log(`[${ts()}]       Tokens: ${total} total (${prompt} prompt${cached ? ` / ${cached} cached` : ""} + ${completion} completion)`)
+    }
+  } catch {}
+
   return new Response(normalized, {
     status: upstream.status,
     headers: {
