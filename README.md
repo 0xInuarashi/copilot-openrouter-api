@@ -9,8 +9,32 @@ A lightweight local proxy server that exposes GitHub Copilot as an **OpenAI-comp
 └──────────────────────┘         └──────────────────────┘         └──────────────────────┘
 ```
 
+## Quickstart TLDR
+
+```bash
+git clone https://github.com/0xInuarashi/copilot-openrouter-api.git
+cd copilot-openrouter-api && bun install
+```
+
+```bash
+bun run login    # opens GitHub in your browser, approve it, done
+bun run serve    # proxy is live on localhost:8080
+```
+
+Set these two env vars and use any OpenAI-compatible client:
+
+```bash
+export OPENAI_API_KEY="<key printed by login>"
+export OPENAI_BASE_URL="http://localhost:8080/v1"
+```
+
+That's it. Everything below is details.
+
+---
+
 ## Table of Contents
 
+- [Quickstart TLDR](#quickstart-tldr)
 - [Features](#features)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
