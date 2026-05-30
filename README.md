@@ -1,6 +1,6 @@
 # copilot-openrouter-api
 
-A lightweight local proxy server that exposes GitHub Copilot as an **OpenAI-compatible API**. Use your Copilot subscription with any tool or SDK that speaks the OpenAI protocol -- OpenAI SDK, OpenRouter SDK, LangChain, LiteLLM, Cursor, or anything else that can point at a custom base URL.
+A lightweight local proxy server that exposes GitHub Copilot as an **OpenAI-compatible and Anthropic-compatible API**. Use your Copilot subscription with any tool or SDK that speaks the OpenAI or Anthropic protocol -- OpenAI SDK, Anthropic SDK, OpenRouter SDK, LangChain, LiteLLM, Cursor, or anything else that can point at a custom base URL.
 
 ```
 ┌──────────────────────┐         ┌──────────────────────┐         ┌──────────────────────┐
@@ -48,6 +48,8 @@ That's it. Everything below is details.
   - [OpenAI Python SDK](#openai-python-sdk)
   - [OpenAI Node.js SDK](#openai-nodejs-sdk)
   - [OpenRouter SDK](#openrouter-sdk)
+  - [Anthropic Python SDK](#anthropic-python-sdk)
+  - [Anthropic TypeScript SDK](#anthropic-typescript-sdk)
   - [cURL](#curl)
   - [Streaming](#streaming)
   - [Vision (Image Inputs)](#vision-image-inputs)
@@ -69,6 +71,7 @@ That's it. Everything below is details.
 ## Features
 
 - **OpenAI-compatible API** -- drop-in replacement for any client that targets the OpenAI API
+- **Anthropic Messages API** -- also supports `/v1/messages` so Anthropic SDKs work out of the box
 - **Streaming & JSON** -- full support for both SSE streaming and standard JSON responses
 - **Vision support** -- automatically detects image content and sets the required Copilot headers
 - **Tool / function calling** -- normalizes Copilot's multi-choice responses into a single merged choice for SDK compatibility
@@ -299,6 +302,93 @@ response = client.chat.completions.create(
 )
 ```
 
+### Anthropic Python SDK
+
+The proxy translates Anthropic Messages API requests to OpenAI format under the hood, so you can use the Anthropic SDK directly:
+
+```bash
+pip install anthropic
+```
+
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="sk-copilot-...",
+    base_url="http://localhost:8080/v1"
+)
+
+message = client.messages.create(
+    model="gpt-4o",
+    max_tokens=1024,
+    system="You are a helpful assistant.",
+    messages=[
+        {"role": "user", "content": "Explain quantum computing in simple terms."}
+    ]
+)
+
+print(message.content[0].text)
+```
+
+Or with environment variables:
+
+```bash
+export ANTHROPIC_API_KEY="sk-copilot-..."
+export ANTHROPIC_BASE_URL="http://localhost:8080/v1"
+```
+
+```python
+import anthropic
+
+client = anthropic.Anthropic()  # Picks up env vars automatically
+message = client.messages.create(
+    model="gpt-4o",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+### Anthropic TypeScript SDK
+
+```bash
+npm install @anthropic-ai/sdk
+```
+
+```typescript
+import Anthropic from "@anthropic-ai/sdk";
+
+const client = new Anthropic({
+  apiKey: "sk-copilot-...",
+  baseURL: "http://localhost:8080/v1",
+});
+
+const message = await client.messages.create({
+  model: "gpt-4o",
+  max_tokens: 1024,
+  messages: [{ role: "user", content: "Hello!" }],
+});
+
+console.log(message.content[0].text);
+```
+
+Streaming works too:
+
+```typescript
+const stream = client.messages.stream({
+  model: "gpt-4o",
+  max_tokens: 1024,
+  messages: [{ role: "user", content: "Write a short poem." }],
+});
+
+for await (const event of stream) {
+  if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+    process.stdout.write(event.delta.text);
+  }
+}
+```
+
+> **Note:** The Anthropic SDK sends auth via `x-api-key` instead of `Authorization: Bearer`. The proxy accepts both.
+
 ### cURL
 
 ```bash
@@ -403,6 +493,7 @@ All endpoints are available under both `/v1` and `/api/v1` prefixes.
 | `GET` | `/v1/models/:id` | No | Get a specific model by ID |
 | `POST` | `/v1/chat/completions` | Yes | Chat completion (OpenAI-compatible) |
 | `POST` | `/v1/responses` | Yes | Responses endpoint (Copilot-specific) |
+| `POST` | `/v1/messages` | Yes | Anthropic Messages API (translated to OpenAI format internally) |
 
 ### API Authentication
 
@@ -454,20 +545,30 @@ Models are returned in the standard OpenAI format with `owned_by: "github-copilo
 
 ```
 src/
-├── index.ts    CLI entry point -- parses commands (login, serve) and flags
-├── auth.ts     GitHub OAuth Device Flow -- login, token storage, domain handling
-├── server.ts   Hono HTTP server -- routing, CORS, logging middleware, API key auth
-├── proxy.ts    Request forwarding -- header translation, streaming, response normalization
-└── models.ts   Model registry -- fetches and caches models from models.dev
+├── index.ts      CLI entry point -- parses commands (login, serve) and flags
+├── auth.ts       GitHub OAuth Device Flow -- login, token storage, domain handling
+├── server.ts     Hono HTTP server -- routing, CORS, logging middleware, API key auth
+├── proxy.ts      Request forwarding -- header translation, streaming, response normalization
+├── anthropic.ts  Anthropic ↔ OpenAI format translation (request, response, streaming)
+└── models.ts     Model registry -- fetches and caches models from models.dev
 ```
 
-**Request lifecycle:**
+**Request lifecycle (OpenAI):**
 
 1. Client sends an OpenAI-format request to the proxy
 2. `server.ts` validates the API key and logs the request
 3. `proxy.ts` translates headers for the Copilot API (intent, vision, initiator)
 4. The request is forwarded to `api.githubcopilot.com` (or your enterprise endpoint)
 5. The response is normalized (multi-choice merging) and returned to the client
+
+**Request lifecycle (Anthropic):**
+
+1. Client sends an Anthropic Messages API request to `/v1/messages`
+2. `server.ts` validates the API key (via `x-api-key` or `Authorization` header)
+3. `anthropic.ts` converts the request to OpenAI format (system prompt, messages, tools)
+4. `proxy.ts` forwards to the Copilot API as usual
+5. `anthropic.ts` converts the response back to Anthropic format (content blocks, stop_reason, usage)
+6. For streaming, OpenAI SSE events are transformed to Anthropic SSE events in real time
 
 ---
 

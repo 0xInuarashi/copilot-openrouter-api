@@ -59,10 +59,14 @@ async function main(): Promise<void> {
       console.log(`\nUse with OpenRouter SDK:`)
       console.log(`  export OPENROUTER_API_KEY="${auth.apiKey}"`)
       console.log(`  export OPENROUTER_BASE_URL="http://localhost:${port}/api/v1"`)
+      console.log(`\nUse with Anthropic SDK:`)
+      console.log(`  export ANTHROPIC_API_KEY="${auth.apiKey}"`)
+      console.log(`  export ANTHROPIC_BASE_URL="http://localhost:${port}/v1"`)
       console.log(`\nEndpoints:`)
-      console.log(`  GET  /v1/models          (also /api/v1/models)`)
-      console.log(`  POST /v1/chat/completions (also /api/v1/chat/completions)`)
-      console.log(`  POST /v1/responses        (also /api/v1/responses)`)
+      console.log(`  GET  /v1/models           (also /api/v1/models)`)
+      console.log(`  POST /v1/chat/completions  (also /api/v1/chat/completions)`)
+      console.log(`  POST /v1/responses         (also /api/v1/responses)`)
+      console.log(`  POST /v1/messages          (also /api/v1/messages) [Anthropic]`)
       console.log(`\nPress Ctrl+C to stop.\n`)
 
       Bun.serve({

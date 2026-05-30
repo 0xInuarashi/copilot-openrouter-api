@@ -3,6 +3,7 @@ import { cors } from "hono/cors"
 import type { AuthData } from "./auth"
 import { listModels, getModel } from "./models"
 import { proxyToGitHubCopilot } from "./proxy"
+import { anthropicToOpenAI, openAIToAnthropic, openAIStreamToAnthropic } from "./anthropic"
 
 let requestCounter = 0
 
@@ -13,11 +14,20 @@ function ts(): string {
 function apiKeyMiddleware(auth: AuthData) {
   return async (c: any, next: any) => {
     const authHeader = c.req.header("Authorization")
-    if (!authHeader) {
+    const xApiKey = c.req.header("x-api-key")
+
+    let token: string | null = null
+    if (authHeader) {
+      token = authHeader.replace(/^Bearer\s+/i, "")
+    } else if (xApiKey) {
+      token = xApiKey
+    }
+
+    if (!token) {
       return c.json(
         {
           error: {
-            message: "Missing Authorization header. Use: Authorization: Bearer <your-api-key>",
+            message: "Missing auth. Use Authorization: Bearer <key> or x-api-key: <key>",
             type: "invalid_request_error",
             code: "missing_api_key",
           },
@@ -26,7 +36,6 @@ function apiKeyMiddleware(auth: AuthData) {
       )
     }
 
-    const token = authHeader.replace(/^Bearer\s+/i, "")
     if (token !== auth.apiKey) {
       return c.json(
         {
@@ -82,6 +91,57 @@ function createAPIRoutes(auth: AuthData): Hono {
     return proxyToGitHubCopilot(c.req.raw, "responses", auth)
   })
 
+  // POST /messages — Anthropic Messages API (auth required)
+  api.post("/messages", apiKeyMiddleware(auth), async (c) => {
+    const rawBody = await c.req.text()
+    let anthropicBody: any
+    try {
+      anthropicBody = JSON.parse(rawBody)
+    } catch {
+      return c.json(
+        { type: "error", error: { type: "invalid_request_error", message: "Invalid JSON body" } },
+        400,
+      )
+    }
+
+    const openaiBody = anthropicToOpenAI(anthropicBody)
+    const isStream = openaiBody.stream === true
+
+    // Build a new request with the converted OpenAI body
+    const convertedRequest = new Request(c.req.url, {
+      method: "POST",
+      headers: c.req.raw.headers,
+      body: JSON.stringify(openaiBody),
+    })
+
+    const response = await proxyToGitHubCopilot(convertedRequest, "chat/completions", auth)
+
+    // Streaming: transform OpenAI SSE → Anthropic SSE
+    if (isStream && response.body) {
+      const anthropicStream = openAIStreamToAnthropic(response.body, anthropicBody.model)
+      return new Response(anthropicStream, {
+        status: response.status,
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      })
+    }
+
+    // Non-streaming: convert JSON response
+    const responseText = await response.text()
+    try {
+      const openaiResponse = JSON.parse(responseText)
+      return c.json(openAIToAnthropic(openaiResponse, anthropicBody.model))
+    } catch {
+      return new Response(responseText, {
+        status: response.status,
+        headers: { "Content-Type": "application/json" },
+      })
+    }
+  })
+
   return api
 }
 
@@ -131,7 +191,7 @@ export function createServer(auth: AuthData): Hono {
       status: "ok",
       service: "copilot-claude-api",
       version: "1.0.0",
-      endpoints: ["/v1/models", "/v1/chat/completions", "/v1/responses", "/api/v1/models", "/api/v1/chat/completions", "/api/v1/responses"],
+      endpoints: ["/v1/models", "/v1/chat/completions", "/v1/responses", "/v1/messages", "/api/v1/models", "/api/v1/chat/completions", "/api/v1/responses", "/api/v1/messages"],
     })
   })
 
